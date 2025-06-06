@@ -1,48 +1,75 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
+// App.js (Updated to include BadgesScreen)
+import React, { useEffect, useState } from 'react';
+import { View, Text, ActivityIndicator, StyleSheet, Image } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
+import LoginScreen from './screens/LoginScreen';
+import MainMap from './screens/MapScreen';
+import AddStationDetailScreen from './screens/AddStationDetail';
+import StationDetailScreen from './screens/StationDetailScreen';
+import ReviewScreen from './screens/ReviewScreen';
+import SettingScreen from './screens/SettingScreen';
+import BadgesScreen from './screens/BadgesScreen'; 
+
+const Stack = createNativeStackNavigator();
 
 export default function App() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [initializing, setInitializing] = useState(true);
 
-  const handleLogin = () => {
-    console.log('Email:', email);
-    console.log('Password:', password);
-    // Thêm xử lý đăng nhập ở đây nếu cần
-  };
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setInitializing(false);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (initializing) {
+    return (
+      <View style={styles.splashContainer}>
+        <Image
+          source={require('./assets/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Text style={styles.tagline}>Find fresh, free water – wherever you go.</Text>
+        <ActivityIndicator size="large" color="#ffffff" style={{ marginTop: 20 }} />
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>RefillMate Login</Text>
-      <TextInput
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        style={styles.input}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-      <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        style={styles.input}
-        secureTextEntry
-      />
-      <Button title="Login" onPress={handleLogin} />
-    </View>
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="MainMap" component={MainMap} />
+        <Stack.Screen name="AddStationDetail" component={AddStationDetailScreen} />
+        <Stack.Screen name="StationDetail" component={StationDetailScreen} />
+        <Stack.Screen name="Review" component={ReviewScreen} />
+        <Stack.Screen name="Settings" component={SettingScreen} />
+        <Stack.Screen name="Badges" component={BadgesScreen} /> {/* <--- Add BadgesScreen */}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#fff',
+  splashContainer: {
+    flex: 1,
+    backgroundColor: '#87CEFA',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  title: {
-    fontSize: 24, fontWeight: 'bold', marginBottom: 20,
+  logo: {
+    width: 200,
+    height: 200,
   },
-  input: {
-    width: '100%', height: 40, borderColor: '#ccc', borderWidth: 1, borderRadius: 5,
-    marginBottom: 15, paddingHorizontal: 10,
+  tagline: {
+    fontSize: 18,
+    color: '#fff',
+    marginTop: 20,
+    textAlign: 'center',
+    paddingHorizontal: 40,
   },
 });
