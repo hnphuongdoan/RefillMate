@@ -1,18 +1,22 @@
-// App.js (Updated to include BadgesScreen)
+// App.js
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Image } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, Image, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons'; // Still needed for other screens
 
+// Import all necessary screen components
 import LoginScreen from './screens/LoginScreen';
-import MainMap from './screens/MapScreen';
+import MainMap from './screens/MapScreen'; // Direct navigation target after login
 import AddStationDetailScreen from './screens/AddStationDetail';
 import StationDetailScreen from './screens/StationDetailScreen';
 import ReviewScreen from './screens/ReviewScreen';
 import SettingScreen from './screens/SettingScreen';
-import BadgesScreen from './screens/BadgesScreen'; 
+import BadgesScreen from './screens/BadgesScreen';
+import PrivacyPolicyScreen from './screens/PrivacyPolicyScreen';
 
 const Stack = createNativeStackNavigator();
+
 
 export default function App() {
   const [initializing, setInitializing] = useState(true);
@@ -43,12 +47,14 @@ export default function App() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
+        {/* Directly navigate to MainMap after login in this version */}
         <Stack.Screen name="MainMap" component={MainMap} />
         <Stack.Screen name="AddStationDetail" component={AddStationDetailScreen} />
         <Stack.Screen name="StationDetail" component={StationDetailScreen} />
         <Stack.Screen name="Review" component={ReviewScreen} />
         <Stack.Screen name="Settings" component={SettingScreen} />
-        <Stack.Screen name="Badges" component={BadgesScreen} /> {/* <--- Add BadgesScreen */}
+        <Stack.Screen name="Badges" component={BadgesScreen} />
+        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

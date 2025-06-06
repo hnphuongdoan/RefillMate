@@ -1,4 +1,4 @@
-// MapScreen.js
+// screens/MapScreen.js
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
@@ -31,7 +31,6 @@ export default function MainMapScreen() {
 
   const mapRef = useRef(null);
 
-  // Effect to get user's current location
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -46,7 +45,6 @@ export default function MainMapScreen() {
     })();
   }, []);
 
-  // Effect to fetch water stations from Firestore
   useEffect(() => {
     if (!db) {
       console.error("Firestore 'db' instance is not available.");
@@ -59,11 +57,18 @@ export default function MainMapScreen() {
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const stations = [];
       querySnapshot.forEach((doc) => {
-        stations.push({ id: doc.id, ...doc.data() });
+        const data = doc.data();
+        // STRICTLY filter out any station that doesn't have a name, id, latitude, or longitude
+        if (data && doc.id && typeof data.name === 'string' && data.name.trim() !== '' &&
+            typeof data.latitude === 'number' && typeof data.longitude === 'number') {
+          stations.push({ id: doc.id, ...data });
+        } else {
+          console.warn("Skipping incomplete or invalid station data:", doc.id, data);
+        }
       });
       setWaterStations(stations);
-      setFilteredStations(stations); // Initially, display all stations
-      console.log("Fetched water stations:", stations);
+      setFilteredStations(stations);
+      console.log("Fetched valid water stations:", stations);
     }, (error) => {
       console.error("Error fetching water stations:", error);
       Alert.alert("Error", "Failed to load water stations: " + error.message);
@@ -72,9 +77,8 @@ export default function MainMapScreen() {
     return () => unsubscribe();
   }, [db]);
 
-  // Haversine formula to calculate distance between two lat/lon points
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Radius of Earth in kilometers
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a =
@@ -82,13 +86,13 @@ export default function MainMapScreen() {
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
       Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c; // Distance in km
+    const distance = R * c;
     return distance;
   };
 
   const handleSearch = async () => {
     if (!search.trim()) {
-      setFilteredStations(waterStations); // If search is empty, show all stations
+      setFilteredStations(waterStations);
       if (mapRef.current && location) {
         mapRef.current.animateToRegion({
           latitude: location.latitude,
@@ -170,15 +174,21 @@ export default function MainMapScreen() {
     navigation.navigate('AddStationDetail', { initialCoords: location });
   };
 
+  // Improved Function to handle marker press with strict validation
   const handleMarkerPress = (station) => {
-    navigation.navigate('StationDetail', { station: station });
+    if (station && station.id && typeof station.name === 'string' && station.name.trim() !== '' &&
+        typeof station.latitude === 'number' && typeof station.longitude === 'number') {
+      navigation.navigate('StationDetail', { station: station });
+    } else {
+      Alert.alert('Invalid Station Data', 'Details for this station are incomplete or malformed. Cannot open details screen.');
+      console.warn('Attempted to open StationDetail with incomplete/invalid data:', station);
+    }
   };
 
   const handleSettingsPress = () => {
     navigation.navigate('Settings');
   };
 
-  // NEW: Function to navigate to BadgesScreen
   const handleBadgesPress = () => {
     navigation.navigate('Badges');
   };
@@ -240,22 +250,20 @@ export default function MainMapScreen() {
         )}
       </MapView>
 
-      {/* Add Station Button */}
-      <TouchableOpacity style={styles.addStationButton} onPress={handleAddStationPress}>
-        <Text style={styles.addStationButtonText}>+</Text>
-      </TouchableOpacity>
+      <View style={styles.bottomRightButtonsContainer}>
+        <TouchableOpacity style={styles.badgesButton} onPress={handleBadgesPress}>
+          <Ionicons name="trophy" size={24} color="#fff" />
+        </TouchableOpacity>
 
-      {/* Settings Button */}
-      <TouchableOpacity style={styles.settingsButton} onPress={handleSettingsPress}>
-        <Ionicons name="settings" size={24} color="#fff" />
-      </TouchableOpacity>
+        <TouchableOpacity style={styles.settingsButton} onPress={handleSettingsPress}>
+          <Ionicons name="settings" size={24} color="#fff" />
+        </TouchableOpacity>
 
-      {/* Badges Button - NEW */}
-      <TouchableOpacity style={styles.badgesButton} onPress={handleBadgesPress}>
-        <Ionicons name="trophy" size={24} color="#fff" /> {/* Trophy icon for badges */}
-      </TouchableOpacity>
+        <TouchableOpacity style={styles.addStationButton} onPress={handleAddStationPress}>
+          <Text style={styles.addStationButtonText}>+</Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* Logout Button */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>Log Out</Text>
       </TouchableOpacity>
@@ -316,12 +324,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#dc3545',
     padding: 15,
     borderRadius: 8,
-    margin: 20,
+    marginHorizontal: 20,
+    marginBottom: 20,
     alignItems: 'center',
     position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
+    bottom: 0,
+    left: 0,
+    right: 0,
     zIndex: 10,
   },
   logoutButtonText: {
@@ -329,10 +338,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  addStationButton: {
+  bottomRightButtonsContainer: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 80,
     right: 20,
+    alignItems: 'flex-end',
+    zIndex: 11,
+  },
+  addStationButton: {
     backgroundColor: '#007bff',
     width: 60,
     height: 60,
@@ -344,7 +357,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
-    zIndex: 11,
+    marginBottom: 10,
   },
   addStationButtonText: {
     color: '#fff',
@@ -352,9 +365,6 @@ const styles = StyleSheet.create({
     lineHeight: 30,
   },
   settingsButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 70 : 40,
-    right: 20,
     backgroundColor: '#0077b6',
     width: 45,
     height: 45,
@@ -366,12 +376,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
-    zIndex: 11,
+    marginBottom: 10,
   },
-  badgesButton: { // NEW style for the badges button
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 70 : 40,
-    right: 75, // Position it to the left of the settings button
+  badgesButton: {
     backgroundColor: '#0077b6',
     width: 45,
     height: 45,
@@ -383,6 +390,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
-    zIndex: 11,
+    marginBottom: 10,
   },
 });

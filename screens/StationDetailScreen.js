@@ -12,48 +12,83 @@ import {
   Platform,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { db, auth } from '../config/firebaseConfig';
-import { doc, collection, addDoc, onSnapshot, query, orderBy, Timestamp, deleteDoc } from 'firebase/firestore';
+import { db, auth, app } from '../config/firebaseConfig';
+import { doc, collection, onSnapshot, query, orderBy, Timestamp, deleteDoc, updateDoc } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { v4 as uuidv4 } from 'uuid';
 
 export default function StationDetailScreen() {
   const route = useRoute();
   const navigation = useNavigation();
-  const { station } = route.params;
 
+  const initialStationDataFromParams = route.params?.station || null;
+
+  const [station, setStation] = useState(initialStationDataFromParams);
   const [reviews, setReviews] = useState([]);
   const [fetchingReviews, setFetchingReviews] = useState(true);
   const [deletingStation, setDeletingStation] = useState(false);
-  const [averageRating, setAverageRating] = useState(0); // New state for average rating
-  const [totalReviews, setTotalReviews] = useState(0);   // New state for total reviews
+  const [averageRating, setAverageRating] = useState(0);
+  const [totalReviews, setTotalReviews] = useState(0);
+  const [currentImageUrl, setCurrentImageUrl] = useState(initialStationDataFromParams?.imageUrl);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  const storage = getStorage(app);
 
   useEffect(() => {
-    if (station && station.id) {
-      const reviewsCollectionRef = collection(db, 'waterStations', station.id, 'reviews');
-      const q = query(reviewsCollectionRef, orderBy('createdAt', 'desc'));
-
-      const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        const fetchedReviews = [];
-        let sumRatings = 0;
-        querySnapshot.forEach((doc) => {
-          const reviewData = { id: doc.id, ...doc.data() };
-          fetchedReviews.push(reviewData);
-          sumRatings += reviewData.rating || 0; // Ensure rating exists and is a number
-        });
-        setReviews(fetchedReviews);
-        setTotalReviews(fetchedReviews.length); // Update total reviews count
-        setAverageRating(fetchedReviews.length > 0 ? sumRatings / fetchedReviews.length : 0); // Calculate average
-
-        setFetchingReviews(false);
-      }, (error) => {
-        console.error("Error fetching reviews:", error);
-        Alert.alert("Error", "Failed to load reviews: " + error.message);
-        setFetchingReviews(false);
-      });
-
-      return () => unsubscribe();
+    if (!station || !station.id) {
+        Alert.alert(
+            'Error',
+            'Station details could not be loaded. Please try again from the map.',
+            [{ text: 'OK', onPress: () => navigation.replace('MainMap') }]
+        );
+        return;
     }
-  }, [station]);
+
+    const reviewsCollectionRef = collection(db, 'waterStations', station.id, 'reviews');
+    const qReviews = query(reviewsCollectionRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribeReviews = onSnapshot(qReviews, (querySnapshot) => {
+      const fetchedReviews = [];
+      let sumRatings = 0;
+      querySnapshot.forEach((doc) => {
+        const reviewData = { id: doc.id, ...doc.data() };
+        fetchedReviews.push(reviewData);
+        sumRatings += reviewData.rating || 0;
+      });
+      setReviews(fetchedReviews);
+      setTotalReviews(fetchedReviews.length);
+      setAverageRating(fetchedReviews.length > 0 ? sumRatings / fetchedReviews.length : 0);
+      setFetchingReviews(false);
+    }, (error) => {
+      console.error("Error fetching reviews:", error);
+      Alert.alert("Error", "Failed to load reviews: " + error.message);
+      setFetchingReviews(false);
+    });
+
+    const stationDocRef = doc(db, 'waterStations', station.id);
+    const unsubscribeStation = onSnapshot(stationDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const updatedStationData = docSnap.data();
+        setStation(prevStation => ({ ...prevStation, ...updatedStationData }));
+        setCurrentImageUrl(updatedStationData.imageUrl);
+      } else {
+        Alert.alert(
+          'Station Not Found',
+          'This station no longer exists. Returning to map.',
+          [{ text: 'OK', onPress: () => navigation.replace('MainMap') }]
+        );
+      }
+    }, (error) => {
+      console.error("Error fetching station document:", error);
+    });
+
+    return () => {
+      unsubscribeReviews();
+      unsubscribeStation();
+    };
+  }, [station, navigation]);
 
   const handleDeleteStation = () => {
     Alert.alert(
@@ -76,6 +111,11 @@ export default function StationDetailScreen() {
                 setDeletingStation(false);
                 return;
               }
+              if (!station || !station.id) {
+                Alert.alert('Error', 'Invalid station to delete.');
+                setDeletingStation(false);
+                return;
+              }
 
               const stationDocRef = doc(db, 'waterStations', station.id);
               await deleteDoc(stationDocRef);
@@ -95,7 +135,81 @@ export default function StationDetailScreen() {
   };
 
   const handleWriteReview = () => {
-    navigation.navigate('AddReview', { stationId: station.id, stationName: station.name });
+    navigation.navigate('Review', { stationId: station.id, stationName: station.name });
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please enable media library permissions to pick an image.');
+      return null;
+    }
+
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+    });
+
+    if (!result.canceled) {
+      return result.assets[0].uri;
+    }
+    return null;
+  };
+
+  const uploadImageAsync = async (uri) => {
+    if (!uri) return null;
+
+    setUploadingImage(true);
+    const blob = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.onload = function () {
+        resolve(xhr.response);
+      };
+      xhr.onerror = function (e) {
+        console.log(e);
+        reject(new TypeError('Network request failed'));
+      };
+      xhr.responseType = 'blob';
+      xhr.open('GET', uri, true);
+      xhr.send(null);
+    });
+
+    const fileRef = ref(storage, `station_images/${uuidv4()}`);
+    const result = await uploadBytes(fileRef, blob);
+
+    blob.close();
+    setUploadingImage(false);
+    return await getDownloadURL(fileRef);
+  };
+
+  const handleUpdateStationImage = async () => {
+    if (!auth.currentUser) {
+      Alert.alert('Login Required', 'You must be logged in to update station information.');
+      return;
+    }
+    if (!station || !station.id) {
+      Alert.alert('Error', 'Invalid station to update image.');
+      return;
+    }
+
+    const imageUri = await pickImage();
+    if (imageUri) {
+      const newImageUrl = await uploadImageAsync(imageUri);
+      if (newImageUrl) {
+        try {
+          const stationDocRef = doc(db, 'waterStations', station.id);
+          await updateDoc(stationDocRef, {
+            imageUrl: newImageUrl,
+          });
+          Alert.alert('Success', 'Station image updated successfully!');
+        } catch (error) {
+          console.error('Error updating station image URL:', error);
+          Alert.alert('Error', 'Failed to update station image: ' + error.message);
+        }
+      }
+    }
   };
 
   const renderAverageStars = (avgRating) => {
@@ -104,8 +218,8 @@ export default function StationDetailScreen() {
       stars.push(
         <Ionicons
           key={i}
-          name={i <= avgRating ? 'star' : 'star-outline'} // Filled or outline based on avg
-          size={20} // Smaller stars for average display
+          name={i <= avgRating ? 'star' : 'star-outline'}
+          size={20}
           color={i <= avgRating ? '#FFD700' : '#ccc'}
           style={{ marginRight: 2 }}
         />
@@ -114,16 +228,30 @@ export default function StationDetailScreen() {
     return <View style={styles.averageStarContainer}>{stars}</View>;
   };
 
+  // Back button handler function
+  const handleGoBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('MainMap');
+    }
+  };
+
+  // Primary rendering guard: If station is still not valid, show loading/error state
+  if (!station || !station.id) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0077b6" />
+        <Text style={styles.loadingText}>Loading station details...</Text>
+        <Text style={styles.loadingText}>If this persists, please try again from the map.</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#0077b6" />
-          <Text style={styles.backButtonText}>Back to Map</Text>
-        </TouchableOpacity>
-
         <Text style={styles.title}>{station.name}</Text>
-        {/* Display average rating and total reviews */}
         <View style={styles.ratingSummary}>
           {renderAverageStars(averageRating)}
           <Text style={styles.ratingText}>
@@ -131,27 +259,42 @@ export default function StationDetailScreen() {
           </Text>
         </View>
 
-        {station.imageUrl && (
-          <Image source={{ uri: station.imageUrl }} style={styles.stationImage} />
+        {currentImageUrl ? (
+          <Image source={{ uri: currentImageUrl }} style={styles.stationImage} />
+        ) : (
+          <Image
+            source={{ uri: `https://placehold.co/600x400/87CEFA/FFFFFF?text=No+Image` }}
+            style={styles.stationImage}
+          />
         )}
+        <TouchableOpacity
+          style={styles.addImageButton}
+          onPress={handleUpdateStationImage}
+          disabled={uploadingImage}
+        >
+          <Text style={styles.addImageButtonText}>
+            {uploadingImage ? 'Uploading Image...' : 'Add/Update Image'}
+          </Text>
+          {uploadingImage && <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 10 }} />}
+        </TouchableOpacity>
+
+
         <Text style={styles.detailText}>Address: {station.address}</Text>
         <Text style={styles.detailText}>Description: {station.description}</Text>
         <Text style={styles.detailText}>Water Type: {station.waterType}</Text>
         <Text style={styles.detailText}>Accessibility: {station.accessibility}</Text>
         <Text style={styles.detailText}>
-          Location: Lat {station.latitude.toFixed(5)}, Lon {station.longitude.toFixed(5)}
+          Location: Lat {station.latitude?.toFixed(5)}, Lon {station.longitude?.toFixed(5)}
         </Text>
 
         <View style={styles.separator} />
 
-        {/* Button to navigate to Review Screen */}
         <TouchableOpacity style={styles.writeReviewButton} onPress={handleWriteReview}>
           <Text style={styles.writeReviewButtonText}>Write/Edit Your Review</Text>
         </TouchableOpacity>
 
         <View style={styles.separator} />
 
-        {/* Reviews List Section */}
         <Text style={styles.sectionTitle}>User Reviews</Text>
         {fetchingReviews ? (
           <ActivityIndicator size="large" color="#0077b6" />
@@ -178,7 +321,6 @@ export default function StationDetailScreen() {
 
         <View style={styles.separator} />
 
-        {/* Delete Station Button */}
         <TouchableOpacity
           style={styles.deleteButton}
           onPress={handleDeleteStation}
@@ -190,6 +332,12 @@ export default function StationDetailScreen() {
           {deletingStation && <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 10 }} />}
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Nút Back mới ở góc dưới bên phải */}
+      <TouchableOpacity style={styles.bottomRightBackButton} onPress={handleGoBack}>
+        <Ionicons name="arrow-back" size={24} color="#fff" />
+        <Text style={styles.bottomRightBackButtonText}>Back to Map</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -199,12 +347,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#e0f7fa',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e0f7fa',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#0077b6',
+  },
   scrollContent: {
     flexGrow: 1,
     padding: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
   },
-  backButton: {
+  backButton: { 
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20,
@@ -218,20 +377,20 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#0077b6',
     textAlign: 'center',
-    marginBottom: 20, // Adjusted margin to make space for rating summary
+    marginBottom: 20,
     fontWeight: 'bold',
   },
-  ratingSummary: { // NEW style for average rating container
+  ratingSummary: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
   },
-  averageStarContainer: { // NEW style for average stars
+  averageStarContainer: {
     flexDirection: 'row',
     marginRight: 5,
   },
-  ratingText: { // NEW style for average rating text
+  ratingText: {
     fontSize: 18,
     color: '#333',
     fontWeight: '600',
@@ -242,6 +401,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 20,
     resizeMode: 'cover',
+  },
+  addImageButton: {
+    backgroundColor: '#00b4d8',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  addImageButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   detailText: {
     fontSize: 16,
@@ -329,5 +502,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     fontWeight: 'bold',
+  },
+  // NEW: Styles for the bottom-right back button 
+  bottomRightBackButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    backgroundColor: '#0077b6', 
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 30, 
+    elevation: 5, // Android
+    shadowColor: '#000', //  iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  bottomRightBackButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 5,
   },
 });

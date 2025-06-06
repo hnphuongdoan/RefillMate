@@ -1,7 +1,7 @@
 // screens/BadgesScreen.js
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native'; // Removed React import
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons'; // Import Ionicons for icons
+import { Ionicons } from '@expo/vector-icons';
 
 export default function BadgesScreen() {
   const navigation = useNavigation();
@@ -12,15 +12,15 @@ export default function BadgesScreen() {
       id: '1',
       name: 'First Contributor',
       description: 'Added your first water station!',
-      icon: 'sparkles', // Ionicons name
-      earned: true, // Example: mark as earned
+      icon: 'sparkles',
+      earned: true,
     },
     {
       id: '2',
       name: 'Reviewer Extraordinaire',
       description: 'Submitted 10 reviews for water stations.',
       icon: 'chatbubbles-outline',
-      earned: false, // Example: not yet earned
+      earned: false,
     },
     {
     id: '3',
@@ -38,14 +38,18 @@ export default function BadgesScreen() {
     },
   ];
 
+  // Back button handler function
+  const handleGoBack = () => {
+    if (navigation.canGoBack()) { 
+      navigation.goBack();
+    } else {
+      navigation.navigate('MainMap');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#0077b6" />
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
-
         <Text style={styles.title}>Your Badges</Text>
 
         {badges.map((badge) => (
@@ -66,6 +70,12 @@ export default function BadgesScreen() {
           </View>
         ))}
       </ScrollView>
+
+      {/* Back button on the right bottombottom */}
+      <TouchableOpacity style={styles.bottomRightBackButton} onPress={handleGoBack}>
+        <Ionicons name="arrow-back" size={24} color="#fff" />
+        <Text style={styles.bottomRightBackButtonText}>Back</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -80,16 +90,7 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
   },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  backButtonText: {
-    marginLeft: 5,
-    fontSize: 16,
-    color: '#0077b6',
-  },
+
   title: {
     fontSize: 28,
     color: '#0077b6',
@@ -137,5 +138,28 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#dc3545', // Red for not earned
     marginTop: 5,
+  },
+  // NEW: Styles for the bottom-right back button
+  bottomRightBackButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    backgroundColor: '#0077b6', 
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 30, 
+    elevation: 5, //Android
+    shadowColor: '#000', //IOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  bottomRightBackButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 5,
   },
 });
